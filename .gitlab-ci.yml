@@ -1,0 +1,26 @@
+stages:
+  - test
+  - docker
+  - staging
+
+test:
+  image: nextbillionai/nbroutes-test:20201014
+  stage: test
+  script:
+    - cargo test
+
+docker-publish:
+  image: nextbillionai/cicd:0.1.0
+  stage: docker
+  services:
+    - docker:18.09-dind
+  variables:
+    DOCKER_HOST: tcp://localhost:2375
+
+  before_script:
+    - docker login -u nextbillionai -p $DOCKER_HUB_PASSWD
+  script:
+    - set -e
+    - bash .docker.sh
+  only:
+    - tags
