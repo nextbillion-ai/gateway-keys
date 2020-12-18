@@ -3,8 +3,9 @@ mod share;
 mod tokens;
 
 use crate::auth_keys::{load_auth_keys, AuthKey};
-use crate::share::{init, Share};
-use crate::tokens::sign_jwts;
+use crate::share::{init, AuthErr, Share};
+use crate::tokens::sign_jwt;
+use actix_web::error::ErrorUnauthorized;
 use actix_web::{get, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -27,11 +28,6 @@ async fn health() -> HttpResponse {
 
 #[derive(Serialize)]
 pub struct KeysOutput {
-    pub keys: HashMap<String, KeyOutput>,
-}
-
-#[derive(Serialize)]
-pub struct KeyOutput {
     pub keys: HashMap<String, AuthKey>,
     pub token: String,
 }
@@ -41,25 +37,30 @@ async fn keys(
     req: HttpRequest,
     share: web::Data<Share>,
 ) -> actix_web::Result<web::Json<KeysOutput>> {
-    let clusters = share.auth(&req)?;
+    let (auds, clusters) = share.auth(&req)?;
 
-    let mut res_keys: HashMap<String, KeyOutput> = HashMap::new();
+    let mut res_keys: HashMap<String, AuthKey> = HashMap::new();
 
     let all_keys = share.auth_keys.read().unwrap();
     for cluster in clusters {
-        if let (Some(cluster_keys), Some(cluster_token)) = (
-            all_keys.keys.get(cluster.as_str()),
-            all_keys.tokens.get(cluster.as_str()),
-        ) {
-            let cluster_key_output = KeyOutput {
-                keys: cluster_keys.clone(),
-                token: cluster_token.clone(),
-            };
-            res_keys.insert(cluster.clone(), cluster_key_output);
+        if let Some(cluster_keys) = all_keys.keys.get(cluster.as_str()) {
+            for (key_name, key_value) in cluster_keys {
+                res_keys.insert(key_name.clone(), key_value.clone());
+            }
         }
     }
 
-    Ok(web::Json(KeysOutput { keys: res_keys }))
+    if res_keys.len() == 0 {
+        return Err(ErrorUnauthorized(AuthErr {
+            msg: "cluster have not valid keys",
+        }));
+    }
+
+    let token = sign_jwt(auds);
+    Ok(web::Json(KeysOutput {
+        keys: res_keys,
+        token,
+    }))
 }
 
 fn main() {
@@ -83,7 +84,6 @@ fn main() {
             loop {
                 intev.tick().await;
                 let mut key_set_mut = key_set.write().unwrap();
-                key_set_mut.tokens = sign_jwts(&config_clone);
 
                 let maybe_new_auth_keys = load_auth_keys(&config_clone).await;
                 match maybe_new_auth_keys {

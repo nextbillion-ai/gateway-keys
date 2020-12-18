@@ -1,5 +1,4 @@
 use crate::auth_keys::{load_auth_keys, AuthKeySet};
-use crate::tokens::sign_jwts;
 use actix_web::{error::ErrorUnauthorized, HttpRequest};
 use nbroutes_util::{jwks::Jwks, timestamp};
 use serde::{Deserialize, Serialize};
@@ -24,7 +23,7 @@ pub struct Config {
 
 #[derive(Debug)]
 pub(crate) struct AuthErr {
-    msg: &'static str,
+    pub msg: &'static str,
 }
 impl std::error::Error for AuthErr {}
 impl std::fmt::Display for AuthErr {
@@ -44,7 +43,7 @@ impl Share {
     pub(crate) fn auth(
         &self,
         req: &HttpRequest,
-    ) -> std::result::Result<Vec<String>, actix_web::error::Error> {
+    ) -> std::result::Result<(Vec<String>, Vec<String>), actix_web::error::Error> {
         let hauth = header(req, "authorization");
         if hauth.is_none() {
             return Err(ErrorUnauthorized(AuthErr {
@@ -72,11 +71,13 @@ impl Share {
                         msg: "jwt token has no valid auth",
                     }));
                 }
+                let mut valid_auds = vec![];
                 for aud in auds.unwrap() {
                     debug!("auds  in jwt token are: {}", aud.as_str().unwrap_or(""));
                     if let Some(cluster) =
                         self.config.aud_cluster_map.get(aud.as_str().unwrap_or(""))
                     {
+                        valid_auds.push(aud.as_str().unwrap_or("").to_string());
                         clusters.push(cluster.clone());
                     }
                 }
@@ -86,7 +87,7 @@ impl Share {
                         msg: "jwt token has no valid auth",
                     }));
                 }
-                Ok(clusters)
+                Ok((valid_auds, clusters))
             }
             Err(e) => Err(ErrorUnauthorized(e)),
         }
@@ -97,7 +98,6 @@ pub async fn init() -> Result<Share> {
     let config = load_config()?;
     let auth_keys = Arc::new(RwLock::new(AuthKeySet {
         keys: load_auth_keys(&config).await?,
-        tokens: sign_jwts(&config),
     }));
     Ok(Share {
         config,

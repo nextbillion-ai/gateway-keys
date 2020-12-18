@@ -31,4 +31,3 @@ jwt = { version="0.11.0", features=["openssl"]}
 smpl_jwt = "0.5.0"
 hmac = "0.10.1"
 sha2 = "0.9.2"
-#jsonwebkey-convert = "0.1.0"
