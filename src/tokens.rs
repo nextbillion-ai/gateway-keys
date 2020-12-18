@@ -1,11 +1,9 @@
-use crate::share::Config;
 use jwt::algorithm::openssl::PKeyWithDigest;
 use jwt::{header::HeaderType, AlgorithmType, Header, SignWithKey, Token};
 use nbroutes_util::timestamp;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use serde_json::value::{Map, Number, Value};
-use std::collections::HashMap;
 
 const PRIVATE_PEM: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIIEowIBAAKCAQEAh9HF/T5KVhvVoHkFv/JezlJUinikLR86GgNWrX3aO6uXJDI7
@@ -35,16 +33,16 @@ IhkH7sjO+0mSxavtDv71MiHT5Oo7VEkVzhias51jGtcqxtOk/plwCsiDQ+vytz7i
 J6rjH/mt+rADVC4hZhCceedj3a529cJ8RUfpH0tdTUIqJovpE7Wa
 -----END RSA PRIVATE KEY-----"#;
 
-pub fn sign_jwts(conf: &Config) -> HashMap<String, String> {
-    let mut res = HashMap::new();
-    for (aud, cluster) in conf.aud_cluster_map.iter() {
-        res.insert(cluster.clone(), sign_jwt(aud.as_str()));
-    }
+// pub fn sign_jwts(conf: &Config) -> HashMap<String, String> {
+//     let mut res = HashMap::new();
+//     for (aud, cluster) in conf.aud_cluster_map.iter() {
+//         res.insert(cluster.clone(), sign_jwt(aud.as_str()));
+//     }
+//
+//     res
+// }
 
-    res
-}
-
-fn sign_jwt(aud: &str) -> String {
+pub fn sign_jwt(auds: Vec<String>) -> String {
     let kk = PKeyWithDigest {
         digest: MessageDigest::sha256(),
         key: PKey::private_key_from_pem(PRIVATE_PEM.as_bytes()).unwrap(),
@@ -62,11 +60,12 @@ fn sign_jwt(aud: &str) -> String {
         "exp".to_owned(),
         Value::Number(Number::from(timestamp() + 3600 as i64)),
     );
-    xmap.insert(
-        "aud".to_owned(),
-        Value::Array(vec![Value::String(aud.to_string())]),
-    );
-    xmap.insert("cid".to_owned(), Value::String(aud.to_string()));
+
+    let mut json_auds = vec![];
+    for aud in auds {
+        json_auds.push(Value::String(aud));
+    }
+    xmap.insert("aud".to_owned(), Value::Array(json_auds));
     let claims: Value = Value::Object(xmap);
 
     let token = Token::new(header, claims).sign_with_key(&kk).unwrap();
