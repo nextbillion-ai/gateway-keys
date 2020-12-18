@@ -1,6 +1,6 @@
 use crate::auth_keys::{load_auth_keys, AuthKeySet};
 use crate::tokens::sign_jwts;
-use actix_web::{error::ErrorBadRequest, error::ErrorUnauthorized, HttpRequest};
+use actix_web::{error::ErrorUnauthorized, HttpRequest};
 use nbroutes_util::{jwks::Jwks, timestamp};
 use serde::{Deserialize, Serialize};
 use serde_yaml;
@@ -109,7 +109,7 @@ pub async fn init() -> Result<Share> {
 fn init_jwt() -> Arc<Jwks> {
     let jwks_url = std::env::var("JWKS_URL").unwrap_or(
         format!(
-            "https://static.nextbillion.io/jwks/nb.ai.pub?{}",
+            "https://static.nextbillion.io/jwks/nb.ai.key_server.pub?{}",
             timestamp()
         )
         .to_string(),

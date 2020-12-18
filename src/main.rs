@@ -9,17 +9,15 @@ use actix_web::{get, middleware::Logger, web, App, HttpRequest, HttpResponse, Ht
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time;
 use tokio::time::{interval, Duration};
 
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate simple_error;
-#[macro_use]
-extern crate serde_derive;
 extern crate openssl;
 extern crate serde;
+extern crate serde_derive;
 extern crate smpl_jwt;
 
 #[get("/health")]
@@ -98,7 +96,7 @@ fn main() {
                         key_set_mut.keys = new_keys;
                         info!("successfully updated new keys in cache");
                     }
-                    Err(e) => {}
+                    Err(e) => warn!("load auth key failed due to {:?}", e),
                 }
             }
         });

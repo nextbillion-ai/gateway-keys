@@ -4,7 +4,6 @@ use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use tokio_postgres::{Client, NoTls, Row};
 
 pub struct AuthKeySet {
