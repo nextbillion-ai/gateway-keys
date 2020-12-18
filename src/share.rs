@@ -1,4 +1,5 @@
 use crate::auth_keys::{load_auth_keys, AuthKeySet};
+use crate::tokens::sign_jwts;
 use actix_web::{error::ErrorBadRequest, error::ErrorUnauthorized, HttpRequest};
 use nbroutes_util::{jwks::Jwks, timestamp};
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,8 @@ impl Share {
 
         match self.auth.verify_without_auds(items[1]) {
             Ok(jwt) => {
+                debug!("jwt is {:?}", jwt);
+
                 let mut clusters = vec![];
 
                 let auds = jwt.payload().get_array("aud");
@@ -94,6 +97,7 @@ pub async fn init() -> Result<Share> {
     let config = load_config()?;
     let auth_keys = Arc::new(RwLock::new(AuthKeySet {
         keys: load_auth_keys(&config).await?,
+        tokens: sign_jwts(&config),
     }));
     Ok(Share {
         config,

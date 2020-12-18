@@ -10,6 +10,7 @@ use tokio_postgres::{Client, NoTls, Row};
 pub struct AuthKeySet {
     // map from cluster to {map from key id to key}
     pub keys: HashMap<String, HashMap<String, AuthKey>>,
+    pub tokens: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

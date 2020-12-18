@@ -1,22 +1,26 @@
 mod auth_keys;
 mod share;
+mod tokens;
 
-use crate::auth_keys::{load_auth_keys, AuthKey, AuthKeyDecoded};
+use crate::auth_keys::{load_auth_keys, AuthKey};
 use crate::share::{init, Share};
+use crate::tokens::sign_jwts;
 use actix_web::{get, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer};
-// use futures::future::lazy;
-// use futures::stream::Stream;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
-use std::{thread, time};
-use tokio::time::{interval, Duration};
-// use tokio_timer::Interval;
 use std::sync::Arc;
+use std::time;
+use tokio::time::{interval, Duration};
 
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate simple_error;
+#[macro_use]
+extern crate serde_derive;
+extern crate openssl;
+extern crate serde;
+extern crate smpl_jwt;
 
 #[get("/health")]
 async fn health() -> HttpResponse {
@@ -25,7 +29,13 @@ async fn health() -> HttpResponse {
 
 #[derive(Serialize)]
 pub struct KeysOutput {
-    pub keys: HashMap<String, HashMap<String, AuthKey>>,
+    pub keys: HashMap<String, KeyOutput>,
+}
+
+#[derive(Serialize)]
+pub struct KeyOutput {
+    pub keys: HashMap<String, AuthKey>,
+    pub token: String,
 }
 
 #[get("/keys")]
@@ -35,12 +45,19 @@ async fn keys(
 ) -> actix_web::Result<web::Json<KeysOutput>> {
     let clusters = share.auth(&req)?;
 
-    let mut res_keys: HashMap<String, HashMap<String, AuthKey>> = HashMap::new();
+    let mut res_keys: HashMap<String, KeyOutput> = HashMap::new();
 
     let all_keys = share.auth_keys.read().unwrap();
     for cluster in clusters {
-        if let Some(cluster_keys) = all_keys.keys.get(cluster.as_str()) {
-            res_keys.insert(cluster.clone(), cluster_keys.clone());
+        if let (Some(cluster_keys), Some(cluster_token)) = (
+            all_keys.keys.get(cluster.as_str()),
+            all_keys.tokens.get(cluster.as_str()),
+        ) {
+            let cluster_key_output = KeyOutput {
+                keys: cluster_keys.clone(),
+                token: cluster_token.clone(),
+            };
+            res_keys.insert(cluster.clone(), cluster_key_output);
         }
     }
 
@@ -67,13 +84,17 @@ fn main() {
             let mut intev = interval(Duration::from_secs(60));
             loop {
                 intev.tick().await;
-                match load_auth_keys(&config_clone).await {
+                let mut key_set_mut = key_set.write().unwrap();
+                key_set_mut.tokens = sign_jwts(&config_clone);
+
+                let maybe_new_auth_keys = load_auth_keys(&config_clone).await;
+                match maybe_new_auth_keys {
                     Ok(new_keys) => {
                         info!(
                             "successfully loaded new keys. available clusters: {:?}",
                             new_keys.keys()
                         );
-                        let mut key_set_mut = key_set.write().unwrap();
+
                         key_set_mut.keys = new_keys;
                         info!("successfully updated new keys in cache");
                     }
