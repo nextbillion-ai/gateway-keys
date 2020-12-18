@@ -7,7 +7,7 @@ use openssl::pkey::PKey;
 use serde_json::value::{Map, Number, Value};
 use std::collections::HashMap;
 
-const PrivatePem: &str = r#"-----BEGIN RSA PRIVATE KEY-----
+const PRIVATE_PEM: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIIEowIBAAKCAQEAh9HF/T5KVhvVoHkFv/JezlJUinikLR86GgNWrX3aO6uXJDI7
 OYXAOZWgh4RUDs/vch6mmG9UdlkhU86kot8LDVF0AgBQXFa7nk/AIJTEHKS88URe
 o03X3aM5RSoQ2EZLSbskbS4RVurSFJ+NENBhFKcmEy3pJ+6/iKvaUJI7H7i4n2m1
@@ -47,7 +47,7 @@ pub fn sign_jwts(conf: &Config) -> HashMap<String, String> {
 fn sign_jwt(aud: &str) -> String {
     let kk = PKeyWithDigest {
         digest: MessageDigest::sha256(),
-        key: PKey::private_key_from_pem(PrivatePem.as_bytes()).unwrap(),
+        key: PKey::private_key_from_pem(PRIVATE_PEM.as_bytes()).unwrap(),
     };
 
     let header = Header {
