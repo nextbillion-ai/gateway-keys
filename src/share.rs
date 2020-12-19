@@ -17,7 +17,7 @@ pub struct Share {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
-    pub aud_cluster_map: HashMap<String, String>,
+    pub aud_cluster_map: HashMap<String, Vec<String>>,
     pub apikey_db_ca: Option<String>,
 }
 
@@ -74,11 +74,13 @@ impl Share {
                 let mut valid_auds = vec![];
                 for aud in auds.unwrap() {
                     debug!("auds  in jwt token are: {}", aud.as_str().unwrap_or(""));
-                    if let Some(cluster) =
+                    if let Some(aud_clusters) =
                         self.config.aud_cluster_map.get(aud.as_str().unwrap_or(""))
                     {
+                        for cluster in aud_clusters {
+                            clusters.push(cluster.clone());
+                        }
                         valid_auds.push(aud.as_str().unwrap_or("").to_string());
-                        clusters.push(cluster.clone());
                     }
                 }
 
