@@ -1,5 +1,7 @@
 aud_cluster_map:
-  ustest: ustest
-  ola: ola
-  everything: all
-  nb: abcde
+  ustest:
+    - ustest
+  ola:
+    - ola
+  everything:
+    - all
