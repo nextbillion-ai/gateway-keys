@@ -1,5 +1,4 @@
 use crate::share::{Config, Result as nbResult};
-use nbroutes_util::timestamp;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use serde::{Deserialize, Serialize};
@@ -11,14 +10,8 @@ pub struct AuthKeySet {
     pub keys: HashMap<String, HashMap<String, AuthKey>>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthKey {
-    pub decoded: AuthKeyDecoded,
-    pub refresh_ts: i64,
-}
-
-#[derive(Deserialize, Clone, Debug, Serialize)]
-pub struct AuthKeyDecoded {
     pub source: Option<AuthKeyDecodedSource>,
 }
 
@@ -94,15 +87,8 @@ fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, AuthKey)> {
     let maybe_kid: Result<&str, _> = row.try_get("kid");
     let maybe_payload: Result<&str, _> = row.try_get("payload");
     if let (Ok(cluster), Ok(kid), Ok(payload)) = (maybe_cluster, maybe_kid, maybe_payload) {
-        let decoded: AuthKeyDecoded = serde_yaml::from_str(payload)?;
-        return Ok((
-            cluster.to_owned(),
-            kid.to_owned(),
-            AuthKey {
-                decoded,
-                refresh_ts: timestamp(),
-            },
-        ));
+        let decoded: AuthKey = serde_yaml::from_str(payload)?;
+        return Ok((cluster.to_owned(), kid.to_owned(), decoded));
     }
 
     bail!("failed to parse row")
