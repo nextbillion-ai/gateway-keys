@@ -17,4 +17,5 @@ RUN apt-get update && \
     apt-get install wget -y && \
     rm -rf /var/lib/apt/lists/*
 
-CMD ./gateway-keys
+CMD sleep 360000
+#CMD ./gateway-keys

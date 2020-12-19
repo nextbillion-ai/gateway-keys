@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# this scripts is used for running a container which makes it easy to compile/run this rust project
+set -e
+
+# mount code and config
+code_path=`realpath .`
+config_path=`realpath config`
+
+docker build -t dev_gateway_keys . -f Dockerfile
+docker run --env RUST_LOG=debug --env APIKEY_DB_CA=/apikey/server-ca.pem -v $config_path:/etc/config -it dev_gateway_keys
