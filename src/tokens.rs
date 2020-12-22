@@ -58,7 +58,7 @@ pub fn sign_jwt(auds: Vec<String>) -> String {
     let mut xmap = Map::new();
     xmap.insert(
         "exp".to_owned(),
-        Value::Number(Number::from(timestamp() + 3600 as i64)),
+        Value::Number(Number::from(timestamp() + 12 * 3600 as i64)),
     );
 
     let mut json_auds = vec![];
