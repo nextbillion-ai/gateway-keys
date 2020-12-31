@@ -74,14 +74,19 @@ impl Share {
                 let mut valid_auds = vec![];
                 for aud in auds.unwrap() {
                     debug!("auds  in jwt token are: {}", aud.as_str().unwrap_or(""));
-                    if let Some(aud_clusters) =
-                        self.config.aud_cluster_map.get(aud.as_str().unwrap_or(""))
-                    {
-                        for cluster in aud_clusters {
-                            clusters.push(cluster.clone());
-                        }
-                        valid_auds.push(aud.as_str().unwrap_or("").to_string());
+                    let aud_string = aud.as_str().unwrap_or("");
+                    if aud_string == "" {
+                        continue;
                     }
+
+                    let aud_clusters = match self.config.aud_cluster_map.get(aud_string) {
+                        Some(aud_clusters) => aud_clusters.clone(),
+                        None => vec![aud_string.to_string()],
+                    };
+                    for cluster in aud_clusters {
+                        clusters.push(cluster.clone());
+                    }
+                    valid_auds.push(aud_string.to_string());
                 }
 
                 if clusters.len() == 0 {
