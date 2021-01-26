@@ -38,6 +38,10 @@ async fn keys(
     share: web::Data<Share>,
 ) -> actix_web::Result<web::Json<KeysOutput>> {
     let (auds, clusters) = share.auth(&req)?;
+    info!(
+        "receive keys request. auds are {:?}, clusters are: {:?}",
+        auds, clusters
+    );
 
     let mut res_keys: HashMap<String, AuthKey> = HashMap::new();
 
