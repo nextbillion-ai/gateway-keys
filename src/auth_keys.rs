@@ -22,8 +22,10 @@ pub struct AuthKeyDecodedSource {
 
 pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<String, AuthKey>>> {
     let client: Client;
-    let conn_str =
-        "host=35.198.230.110 user=gateway password=nextbillion1234$ dbname=apikey sslmode=prefer";
+    let conn_str = format!(
+        "host={} user=gateway password=nextbillion1234$ dbname=apikey sslmode=prefer",
+        conf.db_host
+    );
 
     match &conf.apikey_db_ca {
         Some(v) => {
@@ -31,7 +33,9 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
             builder.set_ca_file(&v).unwrap();
             builder.set_verify(SslVerifyMode::NONE);
             let connector = MakeTlsConnector::new(builder.build());
-            let (_client, connection) = tokio_postgres::connect(conn_str, connector).await.unwrap();
+            let (_client, connection) = tokio_postgres::connect(conn_str.as_str(), connector)
+                .await
+                .unwrap();
             client = _client;
             actix_rt::spawn(async move {
                 if let Err(e) = connection.await {
@@ -40,7 +44,9 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
             });
         }
         None => {
-            let (_client, connection) = tokio_postgres::connect(conn_str, NoTls).await.unwrap();
+            let (_client, connection) = tokio_postgres::connect(conn_str.as_str(), NoTls)
+                .await
+                .unwrap();
             client = _client;
             actix_rt::spawn(async move {
                 if let Err(e) = connection.await {

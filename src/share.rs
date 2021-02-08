@@ -18,6 +18,7 @@ pub struct Share {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub aud_cluster_map: HashMap<String, Vec<String>>,
+    pub db_host: String,
     pub apikey_db_ca: Option<String>,
 }
 
