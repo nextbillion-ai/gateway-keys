@@ -3,6 +3,7 @@ use actix_web::{error::ErrorUnauthorized, HttpRequest};
 use nbroutes_util::{jwks::Jwks, timestamp};
 use serde::{Deserialize, Serialize};
 use serde_yaml;
+use simple_error::SimpleError;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -13,6 +14,7 @@ pub struct Share {
     pub(crate) config: Config,
     pub(crate) auth: Arc<Jwks>,
     pub(crate) auth_keys: Arc<RwLock<AuthKeySet>>,
+    pub(crate) metrics: Arc<RwLock<HashMap<String, f64>>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -100,6 +102,39 @@ impl Share {
             Err(e) => Err(ErrorUnauthorized(e)),
         }
     }
+    pub(crate) fn get_metrics(&self) -> Result<String> {
+        let mut m = self
+            .metrics
+            .write()
+            .map_err(|_b| SimpleError::new("unable to get write lock of metrics"))?;
+        let mut s = String::new();
+        use std::fmt::Write;
+        for (key, value) in &(*m){
+            write!(s, "\n{} {}",key, value)?;
+        }
+        m.clear();
+        debug!("{}",&s);
+        return Ok(s);
+    }
+    pub(crate) fn update_metrics(&self, input: &str) -> Result<()> {
+        debug!("{}",input);
+        let lines = input.lines();
+        for line in lines {
+            if line.starts_with('#') {
+                continue;
+            }
+            let parts: Vec<&str> = line.rsplitn(2, ' ').collect();
+            if parts.len() != 2 {
+                bail!("invalid metrics line: {}", line);
+            }
+            debug!("key:{} , value: {} ",parts[1],parts[0]);
+            self.metrics
+                .write()
+                .map_err(|_b| SimpleError::new("unable to get write lock of metrics"))?
+                .insert(parts[1].to_string(), parts[0].parse::<f64>()?);
+        }
+        Ok(())
+    }
 }
 
 pub async fn init() -> Result<Share> {
@@ -107,10 +142,12 @@ pub async fn init() -> Result<Share> {
     let auth_keys = Arc::new(RwLock::new(AuthKeySet {
         keys: load_auth_keys(&config).await?,
     }));
+    let metrics = Arc::new(RwLock::new(HashMap::new()));
     Ok(Share {
         config,
         auth: init_jwt(),
         auth_keys,
+        metrics,
     })
 }
 

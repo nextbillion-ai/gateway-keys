@@ -5,8 +5,10 @@ mod tokens;
 use crate::auth_keys::{load_auth_keys, AuthKey};
 use crate::share::{init, AuthErr, Share};
 use crate::tokens::sign_jwt;
-use actix_web::error::ErrorUnauthorized;
-use actix_web::{get, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::error::{ErrorBadRequest, ErrorUnauthorized};
+use actix_web::{
+    get, middleware::Logger, post, web, web::Bytes, App, HttpRequest, HttpResponse, HttpServer,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,10 +28,55 @@ async fn health() -> HttpResponse {
     HttpResponse::Ok().body("healthy")
 }
 
+#[get("/metrics")]
+async fn metrics(share: web::Data<Share>) -> actix_web::Result<web::HttpResponse>{
+    Ok(HttpResponse::Ok().body(share.get_metrics()
+        .map_err(|b| ErrorBadRequest((*b).to_string()))?))
+}
+
 #[derive(Serialize)]
 pub struct KeysOutput {
     pub keys: HashMap<String, AuthKey>,
     pub token: String,
+}
+
+#[post("/keys")]
+async fn postkeys(
+    req: HttpRequest,
+    bytes: Bytes,
+    share: web::Data<Share>,
+) -> actix_web::Result<web::Json<KeysOutput>> {
+    let (auds, clusters) = share.auth(&req)?;
+    info!(
+        "receive keys post request. auds are {:?}, clusters are: {:?}",
+        auds, clusters
+    );
+    share
+        .update_metrics(std::str::from_utf8(&bytes.to_vec())?)
+        .map_err(|b| ErrorBadRequest((*b).to_string()))?;
+
+    let mut res_keys: HashMap<String, AuthKey> = HashMap::new();
+
+    let all_keys = share.auth_keys.read().unwrap();
+    for cluster in clusters {
+        if let Some(cluster_keys) = all_keys.keys.get(cluster.as_str()) {
+            for (key_name, key_value) in cluster_keys {
+                res_keys.insert(key_name.clone(), key_value.clone());
+            }
+        }
+    }
+
+    if res_keys.len() == 0 {
+        return Err(ErrorUnauthorized(AuthErr {
+            msg: "cluster have not valid keys",
+        }));
+    }
+
+    let token = sign_jwt(auds);
+    Ok(web::Json(KeysOutput {
+        keys: res_keys,
+        token,
+    }))
 }
 
 #[get("/keys")]
@@ -110,6 +157,8 @@ fn main() {
                 .wrap(Logger::default())
                 .data(share.clone())
                 .service(keys)
+                .service(metrics)
+                .service(postkeys)
                 .service(health)
         })
         .bind("0.0.0.0:8888")
