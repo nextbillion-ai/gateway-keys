@@ -3,7 +3,13 @@ use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_postgres::{Client, NoTls, Row};
+
+fn timestamp() -> i32 {
+    let now = SystemTime::now();
+    now.duration_since(UNIX_EPOCH).unwrap().as_secs() as i32
+}
 
 pub struct AuthKeySet {
     // map from cluster to {map from key id to key}
@@ -57,7 +63,10 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
     }
 
     let rows = &client
-        .query("select * from apikey where status='active'", &[])
+        .query(
+            "select * from apikey where status='active' and (expiration = 0 or expiration < $1)",
+            &[&timestamp()],
+        )
         .await?;
 
     let mut keys: HashMap<String, HashMap<String, AuthKey>> = HashMap::new();
