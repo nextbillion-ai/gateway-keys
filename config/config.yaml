@@ -5,4 +5,4 @@ aud_cluster_map:
     - ola
   everything:
     - all
-db_host: 10.91.0.3
+db_host: localhost
