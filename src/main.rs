@@ -29,9 +29,12 @@ async fn health() -> HttpResponse {
 }
 
 #[get("/metrics")]
-async fn metrics(share: web::Data<Share>) -> actix_web::Result<web::HttpResponse>{
-    Ok(HttpResponse::Ok().body(share.get_metrics()
-        .map_err(|b| ErrorBadRequest((*b).to_string()))?))
+async fn metrics(share: web::Data<Share>) -> actix_web::Result<web::HttpResponse> {
+    Ok(HttpResponse::Ok().body(
+        share
+            .get_metrics()
+            .map_err(|b| ErrorBadRequest((*b).to_string()))?,
+    ))
 }
 
 #[derive(Serialize)]
@@ -40,26 +43,21 @@ pub struct KeysOutput {
     pub token: String,
 }
 
-#[post("/keys")]
-async fn postkeys(
-    req: HttpRequest,
-    bytes: Bytes,
-    share: web::Data<Share>,
-) -> actix_web::Result<web::Json<KeysOutput>> {
-    let (auds, clusters) = share.auth(&req)?;
+fn parse_auth(
+    share: &web::Data<Share>,
+    req: &HttpRequest,
+) -> Result<(HashMap<String, AuthKey>, Vec<String>), actix_web::error::Error> {
+    let (auds, clusters, cid) = share.auth(req)?;
     info!(
-        "receive keys post request. auds are {:?}, clusters are: {:?}",
-        auds, clusters
+        "receive keys request. auds are {:?}, clusters are: {:?}, cid: {:?}",
+        auds, clusters, cid
     );
-    share
-        .update_metrics(std::str::from_utf8(&bytes.to_vec())?)
-        .map_err(|b| ErrorBadRequest((*b).to_string()))?;
 
     let mut res_keys: HashMap<String, AuthKey> = HashMap::new();
 
     let all_keys = share.auth_keys.read().unwrap();
     for cluster in clusters {
-        if let Some(cluster_keys) = all_keys.keys.get(cluster.as_str()) {
+        if let Some(cluster_keys) = all_keys.keys.get((cluster + "|" + &cid).as_str()) {
             for (key_name, key_value) in cluster_keys {
                 res_keys.insert(key_name.clone(), key_value.clone());
             }
@@ -71,6 +69,19 @@ async fn postkeys(
             msg: "cluster have not valid keys",
         }));
     }
+    Ok((res_keys, auds))
+}
+
+#[post("/keys")]
+async fn postkeys(
+    req: HttpRequest,
+    bytes: Bytes,
+    share: web::Data<Share>,
+) -> actix_web::Result<web::Json<KeysOutput>> {
+    let (res_keys, auds) = parse_auth(&share, &req)?;
+    share
+        .update_metrics(std::str::from_utf8(&bytes.to_vec())?)
+        .map_err(|b| ErrorBadRequest((*b).to_string()))?;
 
     let token = sign_jwt(auds);
     Ok(web::Json(KeysOutput {
@@ -84,28 +95,7 @@ async fn keys(
     req: HttpRequest,
     share: web::Data<Share>,
 ) -> actix_web::Result<web::Json<KeysOutput>> {
-    let (auds, clusters) = share.auth(&req)?;
-    info!(
-        "receive keys request. auds are {:?}, clusters are: {:?}",
-        auds, clusters
-    );
-
-    let mut res_keys: HashMap<String, AuthKey> = HashMap::new();
-
-    let all_keys = share.auth_keys.read().unwrap();
-    for cluster in clusters {
-        if let Some(cluster_keys) = all_keys.keys.get(cluster.as_str()) {
-            for (key_name, key_value) in cluster_keys {
-                res_keys.insert(key_name.clone(), key_value.clone());
-            }
-        }
-    }
-
-    if res_keys.len() == 0 {
-        return Err(ErrorUnauthorized(AuthErr {
-            msg: "cluster have not valid keys",
-        }));
-    }
+    let (res_keys, auds) = parse_auth(&share, &req)?;
 
     let token = sign_jwt(auds);
     Ok(web::Json(KeysOutput {
