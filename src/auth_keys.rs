@@ -72,8 +72,9 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
     let mut keys: HashMap<String, HashMap<String, AuthKey>> = HashMap::new();
     for row in rows {
         match parse_auth_key_row(&row) {
-            Ok((cluster, kid, key)) => {
-                let cluster_map = keys.get_mut(cluster.as_str());
+            Ok((cluster, kid, cid, key)) => {
+                let ckey = cluster + "|" + &cid;
+                let cluster_map = keys.get_mut(&ckey);
                 match cluster_map {
                     Some(c_map) => {
                         c_map.insert(kid, key);
@@ -81,7 +82,7 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
                     None => {
                         let mut c_map: HashMap<String, AuthKey> = HashMap::new();
                         c_map.insert(kid, key);
-                        keys.insert(cluster.clone(), c_map);
+                        keys.insert(ckey.clone(), c_map);
                     }
                 };
             }
@@ -97,13 +98,16 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
     Ok(keys)
 }
 
-fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, AuthKey)> {
+fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, String, AuthKey)> {
     let maybe_cluster: Result<&str, _> = row.try_get("cluster");
     let maybe_kid: Result<&str, _> = row.try_get("kid");
+    let maybe_cid: Result<&str, _> = row.try_get("cid");
     let maybe_payload: Result<&str, _> = row.try_get("payload");
-    if let (Ok(cluster), Ok(kid), Ok(payload)) = (maybe_cluster, maybe_kid, maybe_payload) {
+    if let (Ok(cluster), Ok(kid), Ok(cid), Ok(payload)) =
+        (maybe_cluster, maybe_kid, maybe_cid, maybe_payload)
+    {
         let decoded: AuthKey = serde_yaml::from_str(payload)?;
-        return Ok((cluster.to_owned(), kid.to_owned(), decoded));
+        return Ok((cluster.to_owned(), kid.to_owned(), cid.to_owned(), decoded));
     }
 
     bail!("failed to parse row")

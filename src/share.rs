@@ -46,7 +46,7 @@ impl Share {
     pub(crate) fn auth(
         &self,
         req: &HttpRequest,
-    ) -> std::result::Result<(Vec<String>, Vec<String>), actix_web::error::Error> {
+    ) -> std::result::Result<(Vec<String>, Vec<String>, String), actix_web::error::Error> {
         let hauth = header(req, "authorization");
         if hauth.is_none() {
             return Err(ErrorUnauthorized(AuthErr {
@@ -67,28 +67,30 @@ impl Share {
 
                 let mut clusters = vec![];
 
-                let auds = jwt.payload().get_array("aud");
-                if auds.is_none() {
+                let auds = jwt.payload().get_array("aud").ok_or_else(|| {
                     debug!("auds not in jwt token");
-                    return Err(ErrorUnauthorized(AuthErr {
+                    ErrorUnauthorized(AuthErr {
                         msg: "jwt token has no valid auth",
-                    }));
-                }
+                    })
+                })?;
+                let cid = jwt.payload().get_str("cid").unwrap_or("");
+                let cid = cid.to_string();
                 let mut valid_auds = vec![];
-                for aud in auds.unwrap() {
+                for aud in auds {
                     debug!("auds  in jwt token are: {}", aud.as_str().unwrap_or(""));
                     let aud_string = aud.as_str().unwrap_or("");
                     if aud_string == "" {
                         continue;
                     }
 
-                    let aud_clusters = match self.config.aud_cluster_map.get(aud_string) {
-                        Some(aud_clusters) => aud_clusters.clone(),
-                        None => vec![aud_string.to_string()],
+                    match self.config.aud_cluster_map.get(aud_string) {
+                        Some(aud_clusters) => {
+                            for cluster in aud_clusters {
+                                clusters.push(cluster.clone());
+                            }
+                        }
+                        None => clusters.push(aud_string.to_string()),
                     };
-                    for cluster in aud_clusters {
-                        clusters.push(cluster.clone());
-                    }
                     valid_auds.push(aud_string.to_string());
                 }
 
@@ -97,7 +99,7 @@ impl Share {
                         msg: "jwt token has no valid auth",
                     }));
                 }
-                Ok((valid_auds, clusters))
+                Ok((valid_auds, clusters, cid))
             }
             Err(e) => Err(ErrorUnauthorized(e)),
         }
@@ -109,15 +111,15 @@ impl Share {
             .map_err(|_b| SimpleError::new("unable to get write lock of metrics"))?;
         let mut s = String::new();
         use std::fmt::Write;
-        for (key, value) in &(*m){
-            write!(s, "\n{} {}",key, value)?;
+        for (key, value) in &(*m) {
+            write!(s, "\n{} {}", key, value)?;
         }
         m.clear();
-        debug!("{}",&s);
+        debug!("{}", &s);
         return Ok(s);
     }
     pub(crate) fn update_metrics(&self, input: &str) -> Result<()> {
-        debug!("{}",input);
+        debug!("{}", input);
         let lines = input.lines();
         for line in lines {
             if line.starts_with('#') {
@@ -127,7 +129,7 @@ impl Share {
             if parts.len() != 2 {
                 bail!("invalid metrics line: {}", line);
             }
-            debug!("key:{} , value: {} ",parts[1],parts[0]);
+            debug!("key:{} , value: {} ", parts[1], parts[0]);
             self.metrics
                 .write()
                 .map_err(|_b| SimpleError::new("unable to get write lock of metrics"))?
