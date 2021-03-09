@@ -64,7 +64,7 @@ pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<S
 
     let rows = &client
         .query(
-            "select * from apikey where status='active' and (expiration = 0 or expiration < $1)",
+            "select * from apikey where status='active' and (expiration = 0 or expiration > $1)",
             &[&timestamp()],
         )
         .await?;
