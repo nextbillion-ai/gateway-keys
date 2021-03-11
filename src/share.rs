@@ -1,4 +1,5 @@
-use crate::auth_keys::{load_auth_keys, AuthKeySet};
+use crate::auth_keys::{AuthKeySet, AuthCache, LoadAuthActor};
+use actix::prelude::*;
 use actix_web::{error::ErrorUnauthorized, HttpRequest};
 use nbroutes_util::{jwks::Jwks, timestamp};
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,7 @@ pub struct Share {
     pub(crate) auth: Arc<Jwks>,
     pub(crate) auth_keys: Arc<RwLock<AuthKeySet>>,
     pub(crate) metrics: Arc<RwLock<HashMap<String, f64>>>,
+    pub(crate) load_auth_addr: Option<Addr<LoadAuthActor>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -142,7 +144,7 @@ impl Share {
 pub async fn init() -> Result<Share> {
     let config = load_config()?;
     let auth_keys = Arc::new(RwLock::new(AuthKeySet {
-        keys: load_auth_keys(&config).await?,
+        keys: HashMap::<String, AuthCache>::new(),
     }));
     let metrics = Arc::new(RwLock::new(HashMap::new()));
     Ok(Share {
@@ -150,6 +152,7 @@ pub async fn init() -> Result<Share> {
         auth: init_jwt(),
         auth_keys,
         metrics,
+        load_auth_addr: None,
     })
 }
 
