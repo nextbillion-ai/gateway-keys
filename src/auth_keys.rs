@@ -1,101 +1,134 @@
 use crate::share::{Config, Result as nbResult};
+use actix::prelude::*;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use postgres::{Client, NoTls, Row};
 use postgres_openssl::MakeTlsConnector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio_postgres::{Client, NoTls, Row};
 
-fn timestamp() -> i32 {
+pub(crate) fn timestamp() -> i32 {
     let now = SystemTime::now();
     now.duration_since(UNIX_EPOCH).unwrap().as_secs() as i32
 }
 
+
+#[derive(Message, Debug)]
+#[rtype(result = "AuthCache")]
+pub struct LoadAuthMsg {
+    pub cluster: String,
+    pub cid: String,
+}
+
+pub struct LoadAuthActor {
+    conn_str: String,
+    connector: Option<MakeTlsConnector>,
+    client: Option<Client>,
+    ttl: i32,
+}
+
+impl LoadAuthActor {
+    pub fn new(cfg: &Config) -> LoadAuthActor {
+        let conn_str = format!(
+            "host={} user=gateway password=nextbillion1234$ dbname=apikey sslmode=prefer",
+            cfg.db_host,
+        );
+        let mut connector: Option<MakeTlsConnector> = None;
+        if cfg.apikey_db_ca.is_some() {
+            let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
+            builder
+                .set_ca_file(&cfg.apikey_db_ca.as_ref().unwrap())
+                .unwrap();
+            builder.set_verify(SslVerifyMode::NONE);
+            connector = Some(MakeTlsConnector::new(builder.build()));
+        }
+        let ttl = std::env::var("TTL")
+            .unwrap_or("60".to_string())
+            .parse::<i32>()
+            .unwrap();
+        return LoadAuthActor {
+            conn_str: conn_str,
+            connector: connector,
+            client: None,
+            ttl: ttl,
+        };
+    }
+    pub fn connect(&mut self) {
+        if self.connector.is_some() {
+            let _client = Client::connect(
+                self.conn_str.as_str(),
+                self.connector.as_ref().unwrap().clone(),
+            );
+            if _client.is_ok() {
+                self.client = Some(_client.unwrap());
+            }
+        } else {
+            let _client = Client::connect(self.conn_str.as_str(), NoTls);
+            if _client.is_ok() {
+                self.client = Some(_client.unwrap());
+            }
+        }
+    }
+}
+
+impl Actor for LoadAuthActor {
+    type Context = SyncContext<Self>;
+}
+
+impl Handler<LoadAuthMsg> for LoadAuthActor {
+    type Result = MessageResult<LoadAuthMsg>;
+
+    fn handle(&mut self, msg: LoadAuthMsg, _ctx: &mut SyncContext<Self>) -> Self::Result {
+        debug!("process Load Auth: {:?}", &msg);
+        if self.client.is_none() {
+            self.connect();
+        }
+        let mut result = AuthCache{
+            ttl: timestamp() + self.ttl,
+            map: HashMap::<String, AuthKey>::new(),
+        };
+        if self.client.is_some() {
+            let rows = self.client.as_mut().unwrap().query("select * from apikey where status='active' and cluster=$1 and cid=$2 and (expiration = 0 or expiration > $3)",&[&(msg.cluster),&(msg.cid), &timestamp()]);
+            if rows.is_ok() {
+                let rows = rows.unwrap();
+                for row in rows {
+                    match parse_auth_key_row(&row) {
+                        Ok((_cluster, kid, _cid, key)) => {
+                            result.map.insert(kid, key);
+                        }
+                        Err(_) => {
+                            warn!("fail to parse row: {:?}", row);
+                        }
+                    }
+                }
+            } else {
+                warn!("fail to query: {:?}", &rows);
+                self.client = None;
+            }
+        }
+        MessageResult(result)
+    }
+}
+
+pub struct AuthCache{
+    pub ttl: i32,
+    pub map: HashMap<String,AuthKey>
+}
+
 pub struct AuthKeySet {
     // map from cluster to {map from key id to key}
-    pub keys: HashMap<String, HashMap<String, AuthKey>>,
+    pub keys: HashMap<String, AuthCache>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthKey {
-    pub source: Option<AuthKeyDecodedSource>,
+    pub payload: Payload,
+    pub expiration: i32,
 }
 
 #[derive(Deserialize, Clone, Debug, Serialize)]
-pub struct AuthKeyDecodedSource {
+pub struct Payload {
     pub referers: Option<Vec<String>>,
-}
-
-pub async fn load_auth_keys(conf: &Config) -> nbResult<HashMap<String, HashMap<String, AuthKey>>> {
-    let client: Client;
-    let conn_str = format!(
-        "host={} user=gateway password=nextbillion1234$ dbname=apikey sslmode=prefer",
-        conf.db_host
-    );
-
-    match &conf.apikey_db_ca {
-        Some(v) => {
-            let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
-            builder.set_ca_file(&v).unwrap();
-            builder.set_verify(SslVerifyMode::NONE);
-            let connector = MakeTlsConnector::new(builder.build());
-            let (_client, connection) = tokio_postgres::connect(conn_str.as_str(), connector)
-                .await
-                .unwrap();
-            client = _client;
-            actix_rt::spawn(async move {
-                if let Err(e) = connection.await {
-                    eprintln!("connection error: {}", e);
-                }
-            });
-        }
-        None => {
-            let (_client, connection) = tokio_postgres::connect(conn_str.as_str(), NoTls)
-                .await
-                .unwrap();
-            client = _client;
-            actix_rt::spawn(async move {
-                if let Err(e) = connection.await {
-                    eprintln!("connection error: {}", e);
-                }
-            });
-        }
-    }
-
-    let rows = &client
-        .query(
-            "select * from apikey where status='active' and (expiration = 0 or expiration > $1)",
-            &[&timestamp()],
-        )
-        .await?;
-
-    let mut keys: HashMap<String, HashMap<String, AuthKey>> = HashMap::new();
-    for row in rows {
-        match parse_auth_key_row(&row) {
-            Ok((cluster, kid, cid, key)) => {
-                let ckey = cluster + "|" + &cid;
-                let cluster_map = keys.get_mut(&ckey);
-                match cluster_map {
-                    Some(c_map) => {
-                        c_map.insert(kid, key);
-                    }
-                    None => {
-                        let mut c_map: HashMap<String, AuthKey> = HashMap::new();
-                        c_map.insert(kid, key);
-                        keys.insert(ckey.clone(), c_map);
-                    }
-                };
-            }
-            Err(_) => {
-                warn!("fail to parse row: {:?}", row);
-            }
-        }
-    }
-
-    info!("auth keys loaded/reloaded");
-    debug!("keys are {:?}", &keys);
-
-    Ok(keys)
 }
 
 fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, String, AuthKey)> {
@@ -103,10 +136,20 @@ fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, String, AuthKey)> 
     let maybe_kid: Result<&str, _> = row.try_get("kid");
     let maybe_cid: Result<&str, _> = row.try_get("cid");
     let maybe_payload: Result<&str, _> = row.try_get("payload");
-    if let (Ok(cluster), Ok(kid), Ok(cid), Ok(payload)) =
-        (maybe_cluster, maybe_kid, maybe_cid, maybe_payload)
-    {
-        let decoded: AuthKey = serde_yaml::from_str(payload)?;
+
+    let maybe_expiration: Result<i32, _> = row.try_get("expiration");
+    if let (Ok(cluster), Ok(kid), Ok(cid), Ok(payload), Ok(expiration)) = (
+        maybe_cluster,
+        maybe_kid,
+        maybe_cid,
+        maybe_payload,
+        maybe_expiration,
+    ) {
+        let payload: Payload = serde_yaml::from_str(payload)?;
+        let decoded = AuthKey {
+            payload: payload,
+            expiration: expiration,
+        };
         return Ok((cluster.to_owned(), kid.to_owned(), cid.to_owned(), decoded));
     }
 
