@@ -67,7 +67,7 @@ async fn parse_auth(
                         let ts = timestamp();
                         let mut cnt = 0;
                         for (kid, auth_key) in &cache.map {
-                            if auth_key.expiration > ts {
+                            if auth_key.expiration > ts || auth_key.expiration == 0 {
                                 res_keys.insert(kid.clone(), auth_key.clone());
                                 cnt = cnt + 1;
                             }
@@ -82,13 +82,19 @@ async fn parse_auth(
             }
         }
         if load {
-            if let Ok(cache) = share.load_auth_addr.clone().unwrap().send(LoadAuthMsg {
+            if let Ok(cache) = share
+                .load_auth_addr
+                .clone()
+                .unwrap()
+                .send(LoadAuthMsg {
                     cluster: _cluster,
                     cid: _cid,
-                }).await{
+                })
+                .await
+            {
                 let mut all_keys = share.auth_keys.write().unwrap();
 
-                for (kid, auth_key) in &cache.map{
+                for (kid, auth_key) in &cache.map {
                     res_keys.insert(kid.clone(), auth_key.clone());
                 }
                 all_keys.keys.insert(_clusterkey.clone(), cache);
@@ -141,9 +147,14 @@ async fn main() {
     let mut share = init().await.unwrap();
 
     let config_clone = share.config.clone();
-    let authloader_cnt = std::env::var("POOLSIZE").unwrap_or("5".to_string()).parse::<usize>().unwrap();
+    let authloader_cnt = std::env::var("POOLSIZE")
+        .unwrap_or("5".to_string())
+        .parse::<usize>()
+        .unwrap();
 
-    let load_auth_addr = SyncArbiter::start(authloader_cnt, move || LoadAuthActor::new(&config_clone.clone()));
+    let load_auth_addr = SyncArbiter::start(authloader_cnt, move || {
+        LoadAuthActor::new(&config_clone.clone())
+    });
     share.load_auth_addr = Some(load_auth_addr);
 
     let _ = HttpServer::new(move || {

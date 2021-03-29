@@ -12,7 +12,6 @@ pub(crate) fn timestamp() -> i32 {
     now.duration_since(UNIX_EPOCH).unwrap().as_secs() as i32
 }
 
-
 #[derive(Message, Debug)]
 #[rtype(result = "AuthCache")]
 pub struct LoadAuthMsg {
@@ -83,7 +82,7 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
         if self.client.is_none() {
             self.connect();
         }
-        let mut result = AuthCache{
+        let mut result = AuthCache {
             ttl: timestamp() + self.ttl,
             map: HashMap::<String, AuthKey>::new(),
         };
@@ -94,7 +93,7 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
                 for row in rows {
                     match parse_auth_key_row(&row) {
                         Ok((_cluster, kid, _cid, key)) => {
-                            debug!("key loaded for cluster:{:?}: {:?}",&msg.cluster,&kid);
+                            debug!("key loaded for cluster:{:?}: {:?}", &msg.cluster, &kid);
                             result.map.insert(kid, key);
                         }
                         Err(_) => {
@@ -111,9 +110,9 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
     }
 }
 
-pub struct AuthCache{
+pub struct AuthCache {
     pub ttl: i32,
-    pub map: HashMap<String,AuthKey>
+    pub map: HashMap<String, AuthKey>,
 }
 
 pub struct AuthKeySet {

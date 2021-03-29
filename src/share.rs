@@ -1,4 +1,4 @@
-use crate::auth_keys::{AuthKeySet, AuthCache, LoadAuthActor};
+use crate::auth_keys::{AuthCache, AuthKeySet, LoadAuthActor};
 use actix::prelude::*;
 use actix_web::{error::ErrorUnauthorized, HttpRequest};
 use nbroutes_util::{jwks::Jwks, timestamp};
