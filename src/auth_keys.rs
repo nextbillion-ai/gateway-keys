@@ -94,6 +94,7 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
                 for row in rows {
                     match parse_auth_key_row(&row) {
                         Ok((_cluster, kid, _cid, key)) => {
+                            debug!("key loaded for cluster:{:?}: {:?}",&msg.cluster,&kid);
                             result.map.insert(kid, key);
                         }
                         Err(_) => {
