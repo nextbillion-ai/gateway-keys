@@ -127,8 +127,13 @@ pub struct AuthKey {
 }
 
 #[derive(Deserialize, Clone, Debug, Serialize)]
-pub struct Payload {
+pub struct PayloadSource {
     pub referers: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Clone, Debug, Serialize)]
+pub struct Payload {
+    pub source: Option<PayloadSource>,
 }
 
 fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, String, AuthKey)> {
