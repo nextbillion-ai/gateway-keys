@@ -122,7 +122,7 @@ pub struct AuthKeySet {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthKey {
-    pub payload: Payload,
+    pub source: Option<PayloadSource>,
     pub expiration: i32,
 }
 
@@ -152,8 +152,8 @@ fn parse_auth_key_row(row: &Row) -> nbResult<(String, String, String, AuthKey)> 
     ) {
         let payload: Payload = serde_yaml::from_str(payload)?;
         let decoded = AuthKey {
-            payload: payload,
-            expiration: expiration,
+            source: payload.source,
+            expiration,
         };
         return Ok((cluster.to_owned(), kid.to_owned(), cid.to_owned(), decoded));
     }
