@@ -1,6 +1,7 @@
-use crate::auth_keys::{AuthCache, AuthKeySet, LoadAuthActor};
+use crate::auth_keys::{maybe_load_keys_v3, AuthCache, AuthKeySet, AuthKeySetV3, LoadAuthActor};
 use actix::prelude::*;
 use actix_web::{error::ErrorUnauthorized, HttpRequest};
+use jwks_client::jwt::Jwt;
 use nbroutes_util::{jwks::Jwks, timestamp};
 use serde::{Deserialize, Serialize};
 use serde_yaml;
@@ -15,6 +16,7 @@ pub struct Share {
     pub(crate) config: Config,
     pub(crate) auth: Arc<Jwks>,
     pub(crate) auth_keys: Arc<RwLock<AuthKeySet>>,
+    pub(crate) auth_keys_v3: Arc<RwLock<AuthKeySetV3>>,
     pub(crate) metrics: Arc<RwLock<HashMap<String, f64>>>,
     pub(crate) load_auth_addr: Option<Addr<LoadAuthActor>>,
 }
@@ -45,10 +47,67 @@ fn header<'a>(req: &'a HttpRequest, name: &str) -> Option<&'a str> {
 }
 
 impl Share {
+    pub(crate) fn verify_jwt(
+        &self,
+        jwt: Jwt,
+    ) -> std::result::Result<(Vec<String>, Vec<String>, String, bool), actix_web::error::Error>
+    {
+        debug!("jwt is {:?}", jwt);
+
+        let auds = jwt.payload().get_array("aud").ok_or_else(|| {
+            debug!("auds not in jwt token");
+            ErrorUnauthorized(AuthErr {
+                msg: "jwt token has no valid auth",
+            })
+        })?;
+
+        let mut clusters = vec![];
+        let mut valid_auds = vec![];
+        for aud in auds {
+            debug!("auds  in jwt token are: {}", aud.as_str().unwrap_or(""));
+            let aud_string = aud.as_str().unwrap_or("");
+            if aud_string == "" {
+                continue;
+            }
+
+            match self.config.aud_cluster_map.get(aud_string) {
+                Some(aud_clusters) => {
+                    for cluster in aud_clusters {
+                        clusters.push(cluster.clone());
+                    }
+                }
+                None => clusters.push(aud_string.to_string()),
+            };
+            valid_auds.push(aud_string.to_string());
+        }
+
+        if clusters.len() == 0 {
+            return Err(ErrorUnauthorized(AuthErr {
+                msg: "jwt token has no valid auth",
+            }));
+        }
+
+        if clusters.len() == 1 && &clusters[0] == "starter" {
+            let maybe_org_id = jwt.payload().get_u64("org");
+            if maybe_org_id.is_some() {
+                return Ok((
+                    valid_auds,
+                    clusters,
+                    maybe_org_id.unwrap().to_string(),
+                    true,
+                ));
+            }
+        }
+
+        let cid = jwt.payload().get_str("cid").unwrap_or("");
+        Ok((valid_auds, clusters, cid.to_string(), false))
+    }
+
     pub(crate) fn auth(
         &self,
         req: &HttpRequest,
-    ) -> std::result::Result<(Vec<String>, Vec<String>, String), actix_web::error::Error> {
+    ) -> std::result::Result<(Vec<String>, Vec<String>, String, bool), actix_web::error::Error>
+    {
         let hauth = header(req, "authorization");
         if hauth.is_none() {
             return Err(ErrorUnauthorized(AuthErr {
@@ -64,45 +123,7 @@ impl Share {
         }
 
         match self.auth.verify_without_auds(items[1]) {
-            Ok(jwt) => {
-                debug!("jwt is {:?}", jwt);
-
-                let mut clusters = vec![];
-
-                let auds = jwt.payload().get_array("aud").ok_or_else(|| {
-                    debug!("auds not in jwt token");
-                    ErrorUnauthorized(AuthErr {
-                        msg: "jwt token has no valid auth",
-                    })
-                })?;
-                let cid = jwt.payload().get_str("cid").unwrap_or("");
-                let cid = cid.to_string();
-                let mut valid_auds = vec![];
-                for aud in auds {
-                    debug!("auds  in jwt token are: {}", aud.as_str().unwrap_or(""));
-                    let aud_string = aud.as_str().unwrap_or("");
-                    if aud_string == "" {
-                        continue;
-                    }
-
-                    match self.config.aud_cluster_map.get(aud_string) {
-                        Some(aud_clusters) => {
-                            for cluster in aud_clusters {
-                                clusters.push(cluster.clone());
-                            }
-                        }
-                        None => clusters.push(aud_string.to_string()),
-                    };
-                    valid_auds.push(aud_string.to_string());
-                }
-
-                if clusters.len() == 0 {
-                    return Err(ErrorUnauthorized(AuthErr {
-                        msg: "jwt token has no valid auth",
-                    }));
-                }
-                Ok((valid_auds, clusters, cid))
-            }
+            Ok(jwt) => self.verify_jwt(jwt),
             Err(e) => Err(ErrorUnauthorized(e)),
         }
     }
@@ -146,14 +167,19 @@ pub async fn init() -> Result<Share> {
     let auth_keys = Arc::new(RwLock::new(AuthKeySet {
         keys: HashMap::<String, AuthCache>::new(),
     }));
+    let auth_keys_v3 = Arc::new(RwLock::new(maybe_load_keys_v3().await));
     let metrics = Arc::new(RwLock::new(HashMap::new()));
-    Ok(Share {
+
+    let res = Share {
         config,
         auth: init_jwt(),
         auth_keys,
+        auth_keys_v3,
         metrics,
         load_auth_addr: None,
-    })
+    };
+
+    Ok(res)
 }
 
 fn init_jwt() -> Arc<Jwks> {
