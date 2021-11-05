@@ -2,7 +2,7 @@ mod auth_keys;
 mod share;
 mod tokens;
 
-use crate::auth_keys::{timestamp, AuthKey, LoadAuthActor, LoadAuthMsg};
+use crate::auth_keys::{start_key_refresher, timestamp, LoadAuthActor, LoadAuthMsg};
 use crate::share::{init, Share};
 use crate::tokens::sign_jwt;
 use actix::prelude::*;
@@ -10,8 +10,10 @@ use actix_web::error::ErrorBadRequest;
 use actix_web::{
     get, middleware::Logger, post, web, web::Bytes, App, HttpRequest, HttpResponse, HttpServer,
 };
+use nbroutes_util::def::KeyServerAuthKey;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[macro_use]
 extern crate log;
@@ -28,7 +30,7 @@ async fn health() -> HttpResponse {
 }
 
 #[get("/metrics")]
-async fn metrics(share: web::Data<Share>) -> actix_web::Result<web::HttpResponse> {
+async fn metrics(share: web::Data<Arc<Share>>) -> actix_web::Result<web::HttpResponse> {
     Ok(HttpResponse::Ok().body(
         share
             .get_metrics()
@@ -38,21 +40,26 @@ async fn metrics(share: web::Data<Share>) -> actix_web::Result<web::HttpResponse
 
 #[derive(Serialize)]
 pub struct KeysOutput {
-    pub keys: HashMap<String, AuthKey>,
+    pub keys: HashMap<String, KeyServerAuthKey>,
     pub token: String,
 }
 
-async fn parse_auth(
-    share: &web::Data<Share>,
-    req: &HttpRequest,
-) -> Result<(HashMap<String, AuthKey>, String), actix_web::error::Error> {
-    let (auds, clusters, cid) = share.auth(req)?;
-    info!(
-        "receive keys request. auds are {:?}, clusters are: {:?}, cid: {:?}",
-        auds, clusters, cid
-    );
+fn get_keys_v3(org_id: String, share: Arc<Share>) -> HashMap<String, KeyServerAuthKey> {
+    let all_keys_v3 = share.auth_keys_v3.read().unwrap();
+    let org_keys = all_keys_v3.org_keys_map.get(org_id.as_str());
+    if org_keys.is_none() {
+        return HashMap::new();
+    }
 
-    let mut res_keys: HashMap<String, AuthKey> = HashMap::new();
+    org_keys.unwrap().clone()
+}
+
+async fn get_keys_v2(
+    clusters: Vec<String>,
+    cid: String,
+    share: Arc<Share>,
+) -> HashMap<String, KeyServerAuthKey> {
+    let mut res_keys: HashMap<String, KeyServerAuthKey> = HashMap::new();
 
     for cluster in clusters {
         let _cluster = cluster.clone();
@@ -68,7 +75,7 @@ async fn parse_auth(
                         let mut cnt = 0;
                         for (kid, auth_key) in &cache.map {
                             if auth_key.expiration > ts || auth_key.expiration == 0 {
-                                res_keys.insert(kid.clone(), auth_key.clone());
+                                res_keys.insert(kid.clone(), auth_key.to_auth_key_general());
                                 cnt = cnt + 1;
                             }
                         }
@@ -95,12 +102,33 @@ async fn parse_auth(
                 let mut all_keys = share.auth_keys.write().unwrap();
 
                 for (kid, auth_key) in &cache.map {
-                    res_keys.insert(kid.clone(), auth_key.clone());
+                    res_keys.insert(kid.clone(), auth_key.to_auth_key_general());
                 }
                 all_keys.keys.insert(_clusterkey.clone(), cache);
             }
         }
     }
+
+    res_keys
+}
+
+async fn parse_auth(
+    share: &web::Data<Arc<Share>>,
+    req: &HttpRequest,
+) -> Result<(HashMap<String, KeyServerAuthKey>, String), actix_web::error::Error> {
+    let (auds, clusters, cid, is_v3) = share.auth(req)?;
+    info!(
+        "receive keys request. auds are {:?}, clusters are: {:?}, cid: {:?}",
+        auds, clusters, cid
+    );
+
+    let res_keys: HashMap<String, KeyServerAuthKey>;
+    if is_v3 {
+        res_keys = get_keys_v3(cid, Arc::clone(&share));
+    } else {
+        res_keys = get_keys_v2(clusters, cid, Arc::clone(&share)).await;
+    }
+
     let token: String;
     if res_keys.len() > 0 {
         token = sign_jwt(auds);
@@ -115,7 +143,7 @@ async fn parse_auth(
 async fn postkeys(
     req: HttpRequest,
     bytes: Bytes,
-    share: web::Data<Share>,
+    share: web::Data<Arc<Share>>,
 ) -> actix_web::Result<web::Json<KeysOutput>> {
     let (res_keys, token) = parse_auth(&share, &req).await?;
     share
@@ -131,7 +159,7 @@ async fn postkeys(
 #[get("/keys")]
 async fn keys(
     req: HttpRequest,
-    share: web::Data<Share>,
+    share: web::Data<Arc<Share>>,
 ) -> actix_web::Result<web::Json<KeysOutput>> {
     let (res_keys, token) = parse_auth(&share, &req).await?;
 
@@ -157,10 +185,13 @@ async fn main() {
     });
     share.load_auth_addr = Some(load_auth_addr);
 
+    let share_arc = Arc::new(share);
+    actix_rt::spawn(start_key_refresher(Arc::clone(&share_arc)));
+
     let _ = HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
-            .data(share.clone())
+            .data(Arc::clone(&share_arc))
             .service(keys)
             .service(metrics)
             .service(postkeys)
