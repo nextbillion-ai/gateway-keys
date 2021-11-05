@@ -232,11 +232,17 @@ pub async fn reload_keys_v3(share_conf: Arc<Share>) {
         return;
     }
 
-    let keys_v3 = maybe_keys_v3.unwrap();
+    let mut keys_v3 = maybe_keys_v3.unwrap();
     info!(
         "successfully loaded new keys. number of keys: {}",
         keys_v3.len()
     );
+
+    for (kid, key) in keys_v3.iter_mut() {
+        if key.sku_map.is_none() {
+            key.sku_map = Some(HashMap::new());
+        }
+    }
 
     let key_set_v3 = AuthKeySetV3::new(keys_v3);
     let mut share_auth_keys_v3 = share_conf.auth_keys_v3.write().unwrap();
