@@ -17,4 +17,9 @@ RUN apt-get update && \
     apt-get install wget -y && \
     rm -rf /var/lib/apt/lists/*
 
+RUN wget --no-check-certificate https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-322.0.0-linux-x86_64.tar.gz
+RUN tar zxf google-cloud-sdk-322.0.0-linux-x86_64.tar.gz
+RUN rm google-cloud-sdk-322.0.0-linux-x86_64.tar.gz
+ENV PATH=$PATH:google-cloud-sdk/bin
+
 CMD ./gateway-keys
