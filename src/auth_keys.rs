@@ -238,7 +238,7 @@ pub async fn reload_keys_v3(share_conf: Arc<Share>) {
         keys_v3.len()
     );
 
-    for (kid, key) in keys_v3.iter_mut() {
+    for (_kid, key) in keys_v3.iter_mut() {
         if key.sku_map.is_none() {
             key.sku_map = Some(HashMap::new());
         }
