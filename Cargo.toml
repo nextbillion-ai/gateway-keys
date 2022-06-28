@@ -18,7 +18,7 @@ futures = "0.3"
 actix-cors = "0.4.1"
 serde_yaml = "0.8.13"
 serde_json = "1.0.60"
-nbroutes-util = { git = "https://git.nextbillion.io/zhchang/nbroutes-util", branch="master"}
+nbroutes-util = { git = "https://src.nextbillion.io/zhchang/nbroutes-util", branch="master"}
 #nbroutes-util = { path = "../nbroutes-util" }
 tokio = { version="1.8.1", features = ["full"] }
 postgres = "0.19.0"
