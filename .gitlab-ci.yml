@@ -14,11 +14,10 @@ docker-publish:
   stage: docker
   services:
     - docker:18.09-dind
-  variables:
-    DOCKER_HOST: tcp://localhost:2375
 
   before_script:
     - docker login -u nextbillionai -p $DOCKER_HUB_PASSWD
+    - cat $GCR_AUTH_FILE | docker login -u _json_key --password-stdin asia-docker.pkg.dev
   script:
     - set -e
     - bash .docker.sh
