@@ -93,6 +93,7 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
         let mut result = AuthCache {
             ttl: timestamp() + self.ttl,
             map: HashMap::<String, AuthKeyV2>::new(),
+            load_success: false,
         };
         if self.client.is_some() {
             let rows = self.client.as_mut().unwrap().query("select * from apikey where status='active' and cluster=$1 and cid=$2 and (expiration = 0 or expiration > $3)",&[&(msg.cluster),&(msg.cid), &timestamp()]);
@@ -109,6 +110,7 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
                         }
                     }
                 }
+                result.load_success = true
             } else {
                 warn!("fail to query: {:?}", &rows);
                 self.client = None;
@@ -121,6 +123,7 @@ impl Handler<LoadAuthMsg> for LoadAuthActor {
 pub struct AuthCache {
     pub ttl: i32,
     pub map: HashMap<String, AuthKeyV2>,
+    pub load_success: bool,
 }
 
 pub struct AuthKeySet {
