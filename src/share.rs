@@ -29,11 +29,11 @@ pub struct Config {
 }
 
 #[derive(Debug)]
-pub(crate) struct AuthErr {
+pub(crate) struct APIErr {
     pub msg: &'static str,
 }
-impl std::error::Error for AuthErr {}
-impl std::fmt::Display for AuthErr {
+impl std::error::Error for APIErr {}
+impl std::fmt::Display for APIErr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "(msg: {})", self.msg)
     }
@@ -56,7 +56,7 @@ impl Share {
 
         let auds = jwt.payload().get_array("aud").ok_or_else(|| {
             debug!("auds not in jwt token");
-            ErrorUnauthorized(AuthErr {
+            ErrorUnauthorized(APIErr {
                 msg: "jwt token has no valid auth",
             })
         })?;
@@ -82,7 +82,7 @@ impl Share {
         }
 
         if clusters.len() == 0 {
-            return Err(ErrorUnauthorized(AuthErr {
+            return Err(ErrorUnauthorized(APIErr {
                 msg: "jwt token has no valid auth",
             }));
         }
@@ -110,14 +110,14 @@ impl Share {
     {
         let hauth = header(req, "authorization");
         if hauth.is_none() {
-            return Err(ErrorUnauthorized(AuthErr {
+            return Err(ErrorUnauthorized(APIErr {
                 msg: "authorization header not found",
             }));
         }
         let hauth = hauth.unwrap();
         let items: Vec<&str> = hauth.split(" ").collect();
         if !(items.len() == 2 && items[0] == "Bearer") {
-            return Err(ErrorUnauthorized(AuthErr {
+            return Err(ErrorUnauthorized(APIErr {
                 msg: "invalid authorization header",
             }));
         }
