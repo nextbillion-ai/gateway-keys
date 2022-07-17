@@ -3,14 +3,16 @@ mod share;
 mod tokens;
 
 use crate::auth_keys::{start_key_refresher, timestamp, LoadAuthActor, LoadAuthMsg};
-use crate::share::{init, Share};
+use crate::share::{init, APIErr, Share};
 use crate::tokens::sign_jwt;
 use actix::prelude::*;
 use actix_web::error::ErrorBadRequest;
+use actix_web::error::ErrorInternalServerError;
 use actix_web::{
     get, middleware::Logger, post, web, web::Bytes, App, HttpRequest, HttpResponse, HttpServer,
 };
 use nbroutes_util::def::KeyServerAuthKey;
+use nbroutes_util::Result as nbResult;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -58,7 +60,7 @@ async fn get_keys_v2(
     clusters: Vec<String>,
     cid: String,
     share: Arc<Share>,
-) -> HashMap<String, KeyServerAuthKey> {
+) -> nbResult<HashMap<String, KeyServerAuthKey>> {
     let mut res_keys: HashMap<String, KeyServerAuthKey> = HashMap::new();
 
     for cluster in clusters {
@@ -89,7 +91,7 @@ async fn get_keys_v2(
             }
         }
         if load {
-            if let Ok(cache) = share
+            let cache = share
                 .load_auth_addr
                 .clone()
                 .unwrap()
@@ -97,19 +99,26 @@ async fn get_keys_v2(
                     cluster: _cluster,
                     cid: _cid,
                 })
-                .await
-            {
-                let mut all_keys = share.auth_keys.write().unwrap();
-
-                for (kid, auth_key) in &cache.map {
-                    res_keys.insert(kid.clone(), auth_key.to_auth_key_general());
-                }
-                all_keys.keys.insert(_clusterkey.clone(), cache);
+                .await;
+            if cache.is_err() {
+                bail!("sending load auth message failed")
             }
+
+            let cache = cache.unwrap();
+            if !cache.load_success {
+                bail!("load auth message failed")
+            }
+
+            let mut all_keys = share.auth_keys.write().unwrap();
+
+            for (kid, auth_key) in &cache.map {
+                res_keys.insert(kid.clone(), auth_key.to_auth_key_general());
+            }
+            all_keys.keys.insert(_clusterkey.clone(), cache);
         }
     }
 
-    res_keys
+    Ok(res_keys)
 }
 
 async fn parse_auth(
@@ -126,7 +135,13 @@ async fn parse_auth(
     if is_v3 {
         res_keys = get_keys_v3(cid, Arc::clone(&share));
     } else {
-        res_keys = get_keys_v2(clusters, cid, Arc::clone(&share)).await;
+        let maybe_key_res = get_keys_v2(clusters, cid, Arc::clone(&share)).await;
+        if maybe_key_res.is_err() {
+            return Err(ErrorInternalServerError(APIErr {
+                msg: "failed to load apikeys",
+            }));
+        }
+        res_keys = maybe_key_res.unwrap();
     }
 
     let token: String;
