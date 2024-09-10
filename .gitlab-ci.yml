@@ -1,7 +1,6 @@
 stages:
   - test
   - docker
-  - staging
 
 test:
   image: nextbillionai/nbroutes-test:20201014
