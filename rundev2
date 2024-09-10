@@ -4,8 +4,19 @@
 set -e
 
 # mount code and config
+
+ssh_path=`realpath ~/.ssh`
+bashrc_path=`realpath ./dev/.bashrc`
+config_toml_path=`realpath ./dev/config.toml`
+
+# NOTE: you need to copy map data here
+#map_path=`realpath ./dev/map_data/mojo/digraph`
+
+# mount code and config
 code_path=`realpath .`
 config_path=`realpath config`
 
-docker build -t dev_gateway_keys . -f Dockerfile
-docker run --env RUST_LOG=debug --env APIKEY_DB_CA=/apikey/server-ca.pem -v $config_path:/etc/config -it dev_gateway_keys
+
+docker build -t dev_gateway_keys . -f Dockerfile.dev
+# docker run --platform linux/amd64 --env RUST_LOG=debug --env APIKEY_DB_CA=/apikey/server-ca.pem -v $config_path:/etc/config -v $code_path:/code -it dev_gateway_keys bash
+docker run --platform linux/amd64 --privileged -p 8888:8888 -v $config_toml_path:/.cargo/config.toml -v $code_path:/code  -v $ssh_path:/root/.ssh -v $bashrc_path:/root/.bashrc -v $config_path:/etc/config -it dev_gateway_keys bash

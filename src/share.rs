@@ -1,5 +1,4 @@
-use crate::auth_keys::{maybe_load_keys_v3, AuthCache, AuthKeySet, AuthKeySetV3, LoadAuthActor};
-use actix::prelude::*;
+use crate::auth_keys::{maybe_load_keys_v3, AuthKeySetV3};
 use actix_web::{error::ErrorUnauthorized, HttpRequest};
 use jwks_client::jwt::Jwt;
 use nbroutes_util::{jwks::Jwks, timestamp};
@@ -15,10 +14,8 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub struct Share {
     pub(crate) config: Config,
     pub(crate) auth: Arc<Jwks>,
-    pub(crate) auth_keys: Arc<RwLock<AuthKeySet>>,
     pub(crate) auth_keys_v3: Arc<RwLock<AuthKeySetV3>>,
     pub(crate) metrics: Arc<RwLock<HashMap<String, f64>>>,
-    pub(crate) load_auth_addr: Option<Addr<LoadAuthActor>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -164,19 +161,14 @@ impl Share {
 
 pub async fn init() -> Result<Share> {
     let config = load_config()?;
-    let auth_keys = Arc::new(RwLock::new(AuthKeySet {
-        keys: HashMap::<String, AuthCache>::new(),
-    }));
     let auth_keys_v3 = Arc::new(RwLock::new(maybe_load_keys_v3().await));
     let metrics = Arc::new(RwLock::new(HashMap::new()));
 
     let res = Share {
         config,
         auth: init_jwt(),
-        auth_keys,
         auth_keys_v3,
         metrics,
-        load_auth_addr: None,
     };
 
     Ok(res)
