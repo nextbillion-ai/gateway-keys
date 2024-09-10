@@ -9,7 +9,7 @@ test:
   script:
     - cargo test
 
-docker-publish:
+docker:
   image: asia-southeast1-docker.pkg.dev/nextbillion/internal/nip:1.0.3
   stage: publish
   services:
