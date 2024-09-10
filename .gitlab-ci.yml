@@ -10,7 +10,7 @@ test:
 
 docker:
   image: asia-southeast1-docker.pkg.dev/nextbillion/internal/nip:1.0.3
-  stage: publish
+  stage: docker
   services:
     - docker:20.10.17-dind
   variables:
