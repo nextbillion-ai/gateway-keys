@@ -22,4 +22,3 @@ docker-publish:
     - nip -t gateway-keys:$CI_COMMIT_TAG .
   only:
     - tags
-
