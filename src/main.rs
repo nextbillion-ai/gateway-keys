@@ -68,7 +68,7 @@ async fn parse_auth(
         res_keys = get_keys_v3(cid, Arc::clone(&share));
     } 
 
-    let token: sign_jwt(auds);
+    let token = sign_jwt(auds);
     Ok((res_keys, token))
 }
 
