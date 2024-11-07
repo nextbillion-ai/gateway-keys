@@ -1,0 +1,19 @@
+name: publish
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+jobs:
+  docker:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: nextbillion-ai/actions/git-envs@1.0.0
+      - name: run
+        run: |
+          #!/bin/bash
+          set -e
+          nip -t gateway-keys:$CI_COMMIT_TAG .
